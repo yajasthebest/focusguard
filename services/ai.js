@@ -1,6 +1,6 @@
 // Replace this with your Cloudflare Worker URL after deploying
 // It'll look like: https://focusguard.YOUR-NAME.workers.dev
-const WORKER_URL = "https://focusguard.YOUR-NAME.workers.dev";
+const WORKER_URL = "https://crimson-pond-b244.yajas-terian.workers.dev";
 
 export async function sendMessage(messages, context, googleToken) {
   const res = await fetch(`${WORKER_URL}/chat`, {
