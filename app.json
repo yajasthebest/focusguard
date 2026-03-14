@@ -12,9 +12,6 @@
       "permissions": [
         "android.permission.BIND_ACCESSIBILITY_SERVICE"
       ]
-    },
-    "plugins": [
-      "@react-native-google-signin/google-signin"
-    ]
+    }
   }
 }
