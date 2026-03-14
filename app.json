@@ -4,6 +4,9 @@
     "slug": "focusguard",
     "version": "1.0.0",
     "orientation": "portrait",
+    "splash": {
+      "backgroundColor": "#080808"
+    },
     "android": {
       "package": "com.focusguard",
       "adaptiveIcon": {
@@ -12,11 +15,6 @@
       "permissions": [
         "android.permission.BIND_ACCESSIBILITY_SERVICE"
       ]
-    },
-    "extra": {
-      "eas": {
-        "projectId": "907e83a2-6b19-421c-a766-a7c5be162c5d"
-      }
     }
   }
 }
