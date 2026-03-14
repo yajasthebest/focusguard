@@ -5,10 +5,10 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import HomeScreen from './src/screens/HomeScreen';
-import BlockedScreen from './src/screens/BlockedScreen';
-import SettingsScreen from './src/screens/SettingsScreen';
-import AppPickerScreen from './src/screens/AppPickerScreen';
+import HomeScreen from './screens/HomeScreen';
+import BlockedScreen from './screens/BlockedScreen';
+import SettingsScreen from './screens/SettingsScreen';
+import AppPickerScreen from './screens/AppPickerScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
