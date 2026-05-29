@@ -1,20 +1,24 @@
-// Replace this with your Cloudflare Worker URL after deploying
-// It'll look like: https://focusguard.YOUR-NAME.workers.dev
-const WORKER_URL = "https://crimson-pond-b244.yajas-terian.workers.dev";
+const WORKER_URL = 'https://fancy-sea-9e22.yajas-terian.workers.dev';
 
 export async function sendMessage(messages, context, googleToken) {
   const res = await fetch(`${WORKER_URL}/chat`, {
-    method: "POST",
+    method: 'POST',
     headers: {
-      "Content-Type": "application/json",
-      // We send the Google OAuth token — worker verifies it's real
-      // then uses ITS OWN Gemini key. User never sees the Gemini key.
-      "Authorization": `Bearer ${googleToken}`,
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${googleToken || 'anonymous'}`,
     },
     body: JSON.stringify({ messages, context }),
   });
-
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Worker error");
+  const rawText = await res.text();
+  let data;
+  try {
+    data = JSON.parse(rawText);
+  } catch {
+    throw new Error(`Server returned invalid response (${res.status})`);
+  }
+  if (!res.ok) throw new Error(data?.error || 'Worker error');
+  if (typeof data.message === 'string' && data.message.trim().startsWith('{')) {
+    try { data.message = JSON.parse(data.message).message || data.message; } catch {}
+  }
   return data;
 }
