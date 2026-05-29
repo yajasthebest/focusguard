@@ -1,124 +1,130 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View, Text, FlatList, TouchableOpacity,
-  StyleSheet, SafeAreaView, TextInput, ActivityIndicator,
-} from 'react-native';
-import { addBlockedApp, getBlockedApps } from '../services/storage';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, SafeAreaView, TextInput, ActivityIndicator, NativeModules, Alert } from 'react-native';
+import { addBlockedApp } from '../services/storage';
 
-// Common apps to block - in production this comes from the native module
-// which lists all installed apps on the device
-const COMMON_APPS = [
-  { packageName: 'com.instagram.android', appName: 'Instagram' },
-  { packageName: 'com.twitter.android', appName: 'Twitter / X' },
-  { packageName: 'com.zhiliaoapp.musically', appName: 'TikTok' },
-  { packageName: 'com.snapchat.android', appName: 'Snapchat' },
-  { packageName: 'com.reddit.frontpage', appName: 'Reddit' },
-  { packageName: 'com.facebook.katana', appName: 'Facebook' },
-  { packageName: 'com.youtube.android', appName: 'YouTube' },
-  { packageName: 'com.whatsapp', appName: 'WhatsApp' },
-  { packageName: 'com.discord', appName: 'Discord' },
-  { packageName: 'com.netflix.mediaclient', appName: 'Netflix' },
-  { packageName: 'com.spotify.music', appName: 'Spotify' },
-  { packageName: 'com.amazon.mShop.android.shopping', appName: 'Amazon' },
-  { packageName: 'com.linkedin.android', appName: 'LinkedIn' },
-  { packageName: 'com.pinterest', appName: 'Pinterest' },
-  { packageName: 'com.tumblr', appName: 'Tumblr' },
+const { UsageStats } = NativeModules;
+
+// Fallback list if native module not available
+const FALLBACK_APPS = [
+  { appName: 'Instagram', packageName: 'com.instagram.android' },
+  { appName: 'YouTube', packageName: 'com.google.android.youtube' },
+  { appName: 'TikTok', packageName: 'com.zhiliaoapp.musically' },
+  { appName: 'Twitter / X', packageName: 'com.twitter.android' },
+  { appName: 'Snapchat', packageName: 'com.snapchat.android' },
+  { appName: 'Facebook', packageName: 'com.facebook.katana' },
+  { appName: 'Reddit', packageName: 'com.reddit.frontpage' },
+  { appName: 'WhatsApp', packageName: 'com.whatsapp' },
+  { appName: 'Telegram', packageName: 'org.telegram.messenger' },
+  { appName: 'Netflix', packageName: 'com.netflix.mediaclient' },
 ];
 
 export default function AppPickerScreen({ navigation }) {
+  const [apps, setApps] = useState([]);
+  const [filtered, setFiltered] = useState([]);
   const [search, setSearch] = useState('');
-  const [blockedPackages, setBlockedPackages] = useState([]);
-  const [adding, setAdding] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [limit, setLimit] = useState('30');
 
   useEffect(() => {
-    getBlockedApps().then(apps => setBlockedPackages(apps.map(a => a.packageName)));
+    loadApps();
   }, []);
 
-  const filtered = COMMON_APPS.filter(a =>
-    a.appName.toLowerCase().includes(search.toLowerCase())
-  );
+  useEffect(() => {
+    const q = search.toLowerCase();
+    setFiltered(apps.filter(a => a.appName.toLowerCase().includes(q)));
+  }, [search, apps]);
+
+  const loadApps = async () => {
+    setLoading(true);
+    try {
+      if (UsageStats?.getInstalledApps) {
+        const installed = await UsageStats.getInstalledApps();
+        setApps(installed);
+        setFiltered(installed);
+      } else {
+        setApps(FALLBACK_APPS);
+        setFiltered(FALLBACK_APPS);
+      }
+    } catch {
+      setApps(FALLBACK_APPS);
+      setFiltered(FALLBACK_APPS);
+    }
+    setLoading(false);
+  };
 
   const handleAdd = async (app) => {
-    if (blockedPackages.includes(app.packageName)) return;
-    setAdding(app.packageName);
-    await addBlockedApp(app);
-    setBlockedPackages(prev => [...prev, app.packageName]);
-    setAdding(null);
+    const mins = parseInt(limit);
+    if (!mins || mins < 1) {
+      Alert.alert('Invalid limit', 'Please enter a valid number of minutes.');
+      return;
+    }
+    await addBlockedApp({ ...app, dailyLimitMinutes: mins });
+    navigation.goBack();
   };
 
   return (
     <SafeAreaView style={s.container}>
       <View style={s.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
-          <Text style={s.backBtnText}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={s.title}>Add Apps to Block</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()}><Text style={s.back}>← Back</Text></TouchableOpacity>
+        <Text style={s.title}>Add App</Text>
+      </View>
+
+      <View style={s.limitRow}>
+        <Text style={s.limitLabel}>Daily limit (minutes):</Text>
+        <TextInput
+          style={s.limitInput}
+          value={limit}
+          onChangeText={setLimit}
+          keyboardType="numeric"
+          placeholderTextColor="#444"
+        />
       </View>
 
       <TextInput
         style={s.search}
         placeholder="Search apps..."
-        placeholderTextColor="#444"
+        placeholderTextColor="#333"
         value={search}
         onChangeText={setSearch}
       />
 
-      <Text style={s.note}>
-        💡 In the full build, this list comes from your installed apps via the native module.
-      </Text>
-
-      <FlatList
-        data={filtered}
-        keyExtractor={item => item.packageName}
-        contentContainerStyle={{ padding: 16, gap: 8 }}
-        renderItem={({ item }) => {
-          const isBlocked = blockedPackages.includes(item.packageName);
-          const isAdding = adding === item.packageName;
-          return (
-            <View style={s.appRow}>
-              <View style={s.appIcon}>
-                <Text style={s.appIconText}>{item.appName[0]}</Text>
-              </View>
-              <View style={s.appInfo}>
+      {loading ? (
+        <View style={s.center}><ActivityIndicator color="#7c3aed" size="large" /></View>
+      ) : (
+        <FlatList
+          data={filtered}
+          keyExtractor={item => item.packageName}
+          renderItem={({ item }) => (
+            <TouchableOpacity style={s.row} onPress={() => handleAdd(item)}>
+              <View style={s.icon}><Text style={s.iconText}>{item.appName[0]}</Text></View>
+              <View style={{ flex: 1 }}>
                 <Text style={s.appName}>{item.appName}</Text>
-                <Text style={s.packageName}>{item.packageName}</Text>
+                <Text style={s.pkg}>{item.packageName}</Text>
               </View>
-              <TouchableOpacity
-                style={[s.addBtn, isBlocked && s.addedBtn]}
-                onPress={() => handleAdd(item)}
-                disabled={isBlocked || isAdding}
-              >
-                {isAdding
-                  ? <ActivityIndicator color="#7c3aed" size="small" />
-                  : <Text style={[s.addBtnText, isBlocked && s.addedBtnText]}>
-                      {isBlocked ? '✓ Added' : '+ Block'}
-                    </Text>
-                }
-              </TouchableOpacity>
-            </View>
-          );
-        }}
-      />
+              <Text style={s.add}>+ Add</Text>
+            </TouchableOpacity>
+          )}
+          contentContainerStyle={{ paddingBottom: 20 }}
+        />
+      )}
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#080808' },
-  header: { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 12, borderBottomWidth: 1, borderBottomColor: '#111' },
-  backBtn: {},
-  backBtnText: { color: '#7c3aed', fontFamily: 'monospace', fontSize: 14 },
-  title: { color: 'white', fontWeight: '700', fontFamily: 'monospace', fontSize: 16 },
-  search: { margin: 16, marginBottom: 8, backgroundColor: '#111', borderWidth: 1, borderColor: '#222', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11, color: 'white', fontFamily: 'monospace', fontSize: 14 },
-  note: { color: '#333', fontFamily: 'monospace', fontSize: 11, paddingHorizontal: 16, marginBottom: 4 },
-  appRow: { backgroundColor: '#111', borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: '#1a1a1a' },
-  appIcon: { width: 40, height: 40, borderRadius: 10, backgroundColor: '#1a1a2e', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#7c3aed22' },
-  appIconText: { color: '#7c3aed', fontWeight: '700', fontSize: 17 },
-  appInfo: { flex: 1 },
-  appName: { color: 'white', fontFamily: 'monospace', fontWeight: '600', fontSize: 14 },
-  packageName: { color: '#333', fontFamily: 'monospace', fontSize: 10, marginTop: 1 },
-  addBtn: { backgroundColor: '#7c3aed22', borderWidth: 1, borderColor: '#7c3aed44', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 },
-  addedBtn: { backgroundColor: '#14532d22', borderColor: '#22c55e33' },
-  addBtnText: { color: '#7c3aed', fontFamily: 'monospace', fontWeight: '700', fontSize: 12 },
-  addedBtnText: { color: '#22c55e' },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#111', gap: 12 },
+  back: { color: '#7c3aed', fontSize: 14, fontWeight: '600' },
+  title: { color: 'white', fontSize: 18, fontWeight: '700' },
+  limitRow: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: '#111' },
+  limitLabel: { color: '#555', fontSize: 13, flex: 1 },
+  limitInput: { backgroundColor: '#111', color: 'white', borderWidth: 1, borderColor: '#7c3aed33', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, width: 70, textAlign: 'center' },
+  search: { margin: 12, backgroundColor: '#111', borderWidth: 1, borderColor: '#1a1a1a', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, color: 'white', fontSize: 14 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: '#111', gap: 12 },
+  icon: { width: 38, height: 38, borderRadius: 9, backgroundColor: '#1a1a2e', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#7c3aed22' },
+  iconText: { color: '#7c3aed', fontWeight: '700', fontSize: 16 },
+  appName: { color: 'white', fontSize: 14, fontWeight: '600' },
+  pkg: { color: '#333', fontSize: 10, marginTop: 1 },
+  add: { color: '#7c3aed', fontSize: 12, fontWeight: '700' },
 });
