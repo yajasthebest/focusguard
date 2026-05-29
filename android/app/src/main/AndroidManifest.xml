@@ -1,10 +1,11 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-  <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE"/>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
   <uses-permission android:name="android.permission.INTERNET"/>
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
   <uses-permission android:name="android.permission.VIBRATE"/>
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+  <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission"/>
+  <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions"/>
   <queries>
     <intent>
       <action android:name="android.intent.action.VIEW"/>
@@ -30,5 +31,16 @@
       </intent-filter>
     </activity>
     <activity android:name="com.facebook.react.devsupport.DevSettingsActivity" android:exported="false"/>
+    <service
+      android:name=".AppBlockerService"
+      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.accessibilityservice.AccessibilityService"/>
+      </intent-filter>
+      <meta-data
+        android:name="android.accessibilityservice"
+        android:resource="@xml/accessibility_service_config"/>
+    </service>
   </application>
 </manifest>
