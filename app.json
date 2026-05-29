@@ -4,6 +4,7 @@
     "slug": "focusguard",
     "version": "1.0.0",
     "orientation": "portrait",
+    "scheme": "focusguard",
     "splash": {
       "backgroundColor": "#080808"
     },
@@ -13,7 +14,9 @@
         "backgroundColor": "#080808"
       },
       "permissions": [
-        "android.permission.BIND_ACCESSIBILITY_SERVICE"
+        "android.permission.BIND_ACCESSIBILITY_SERVICE",
+        "android.permission.PACKAGE_USAGE_STATS",
+        "android.permission.QUERY_ALL_PACKAGES"
       ]
     },
     "extra": {
