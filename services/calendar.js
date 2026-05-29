@@ -1,100 +1,112 @@
-import { GoogleSignin } from "@react-native-google-signin/google-signin";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as AuthSession from 'expo-auth-session';
+import * as WebBrowser from 'expo-web-browser';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// One Google sign-in gives us:
-// 1. Access to Calendar + Tasks (to show the AI your schedule)
-// 2. An OAuth token that proves to our backend the user is legit
-//    (backend uses THIS to verify, then calls Gemini with its own key)
+WebBrowser.maybeCompleteAuthSession();
 
-export function initGoogle() {
-  GoogleSignin.configure({
-    // Get this from console.cloud.google.com
-    // Enable: Google Calendar API, Tasks API
-    // Create OAuth 2.0 credentials → Android → package: com.focusguard
-    webClientId: "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
-    scopes: [
-      "https://www.googleapis.com/auth/calendar.readonly",
-      "https://www.googleapis.com/auth/tasks.readonly",
-    ],
-  });
+const CLIENT_ID = '283887490054-oqfufknt05v68pmpcndsehrgnuide5nv.apps.googleusercontent.com';
+const SCOPES = [
+  'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/tasks.readonly',
+  'profile',
+  'email',
+];
+
+export function useGoogleAuth() {
+  const [request, response, promptAsync] = AuthSession.useAuthRequest(
+    {
+      clientId: CLIENT_ID,
+      scopes: SCOPES,
+      redirectUri: AuthSession.makeRedirectUri({ useProxy: true }),
+    },
+    { authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth' }
+  );
+  return { request, response, promptAsync };
 }
 
-export async function signIn() {
-  await GoogleSignin.hasPlayServices();
-  const userInfo = await GoogleSignin.signIn();
-  const { accessToken } = await GoogleSignin.getTokens();
-  await AsyncStorage.setItem("googleToken", accessToken);
-  await AsyncStorage.setItem("googleUser", JSON.stringify({
-    name: userInfo.user.name,
-    email: userInfo.user.email,
-    photo: userInfo.user.photo,
-  }));
-  return { token: accessToken, user: userInfo.user };
+export async function handleAuthResponse(response) {
+  if (response?.type === 'success') {
+    const { access_token } = response.params;
+    await AsyncStorage.setItem('googleToken', access_token);
+    const userRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${access_token}` },
+    });
+    const user = await userRes.json();
+    await AsyncStorage.setItem('googleUser', JSON.stringify(user));
+    return { token: access_token, user };
+  }
+  return null;
 }
 
 export async function signOut() {
-  await GoogleSignin.signOut();
-  await AsyncStorage.removeItem("googleToken");
-  await AsyncStorage.removeItem("googleUser");
+  await AsyncStorage.removeItem('googleToken');
+  await AsyncStorage.removeItem('googleUser');
 }
 
 export async function getStoredToken() {
-  return await AsyncStorage.getItem("googleToken");
+  return await AsyncStorage.getItem('googleToken');
 }
 
 export async function getStoredUser() {
-  const data = await AsyncStorage.getItem("googleUser");
+  const data = await AsyncStorage.getItem('googleUser');
   return data ? JSON.parse(data) : null;
 }
 
-export async function refreshToken() {
+export async function getCalendarEvents(token) {
+  if (!token || token === 'demo') return getDummyEvents();
   try {
-    await GoogleSignin.signInSilently();
-    const { accessToken } = await GoogleSignin.getTokens();
-    await AsyncStorage.setItem("googleToken", accessToken);
-    return accessToken;
+    const now = new Date().toISOString();
+    const end = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${now}&timeMax=${end}&singleEvents=true&orderBy=startTime&maxResults=10`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const data = await res.json();
+    if (!res.ok) return getDummyEvents();
+    return (data.items || []).map(e => {
+      const start = e.start?.dateTime || e.start?.date;
+      const eventDate = new Date(start);
+      const isToday = eventDate.toDateString() === new Date().toDateString();
+      return {
+        title: e.summary || 'Untitled',
+        time: eventDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isToday,
+      };
+    });
   } catch {
-    return null;
+    return getDummyEvents();
   }
 }
 
-export async function getCalendarEvents(token) {
-  if (!token) return [];
-  try {
-    const now = new Date();
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(23, 59, 59);
-
-    const res = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/primary/events?` +
-      `timeMin=${now.toISOString()}&timeMax=${tomorrow.toISOString()}&singleEvents=true&orderBy=startTime&maxResults=8`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    const data = await res.json();
-    return (data.items || []).map(e => {
-      const start = new Date(e.start?.dateTime || e.start?.date);
-      return {
-        title: e.summary || "Untitled",
-        time: e.start?.dateTime ? start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "All day",
-        isToday: start.toDateString() === now.toDateString(),
-      };
-    });
-  } catch { return []; }
-}
-
 export async function getTodos(token) {
-  if (!token) return [];
+  if (!token || token === 'demo') return getDummyTodos();
   try {
     const res = await fetch(
-      "https://tasks.googleapis.com/tasks/v1/lists/@default/tasks?showCompleted=false&maxResults=8",
+      'https://tasks.googleapis.com/tasks/v1/lists/@default/tasks?showCompleted=false&maxResults=10',
       { headers: { Authorization: `Bearer ${token}` } }
     );
     const data = await res.json();
+    if (!res.ok) return getDummyTodos();
     return (data.items || []).map(t => ({
-      title: t.title || "Untitled",
-      completed: t.status === "completed",
+      title: t.title || 'Untitled',
+      completed: t.status === 'completed',
       dueDate: t.due ? new Date(t.due).toLocaleDateString() : null,
     }));
-  } catch { return []; }
+  } catch {
+    return getDummyTodos();
+  }
+}
+
+function getDummyEvents() {
+  return [
+    { title: 'Study Session', time: '3:00 PM', isToday: true },
+    { title: 'Exam Tomorrow', time: '9:00 AM', isToday: false },
+  ];
+}
+
+function getDummyTodos() {
+  return [
+    { title: 'Finish assignment', completed: false, dueDate: 'Today' },
+    { title: 'Review notes', completed: false, dueDate: 'Today' },
+  ];
 }
