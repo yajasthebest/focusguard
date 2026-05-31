@@ -20,7 +20,12 @@ class MainApplication : Application(), ReactApplication {
         this,
         object : DefaultReactNativeHost(this) {
           override fun getPackages(): List<ReactPackage> {
-            return PackageList(this).packages
+            val packages = PackageList(this).packages
+            // Manually register the native app-blocking modules (AppBlocker,
+            // UsageStats). These are not autolinked, so without this line
+            // NativeModules.AppBlocker / NativeModules.UsageStats are undefined.
+            packages.add(AppBlockerPackage())
+            return packages
           }
           override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"
           override fun getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG

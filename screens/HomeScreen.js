@@ -23,6 +23,19 @@ export default function HomeScreen({ navigation }) {
 
   const totalUsed = Object.values(usageToday).reduce((a, b) => a + b, 0);
 
+  // Dev/test: open the AI gate without waiting to hit a real limit.
+  // Uses the first blocked app if there is one, otherwise a sensible default.
+  const testAI = () => {
+    const app = blockedApps[0] || { appName: 'Instagram', packageName: 'com.instagram.android', dailyLimitMinutes: 30 };
+    const used = usageToday[app.packageName] ?? 25;
+    navigation.navigate('Blocked', {
+      appName: app.appName,
+      packageName: app.packageName,
+      usedMinutes: used,
+      limitMinutes: app.dailyLimitMinutes,
+    });
+  };
+
   return (
     <SafeAreaView style={s.container}>
       <View style={s.header}>
@@ -47,6 +60,11 @@ export default function HomeScreen({ navigation }) {
             <Text style={s.statLabel}>Limits Hit</Text>
           </View>
         </View>
+
+        {/* Test the AI gate without hitting a real limit */}
+        <TouchableOpacity style={s.testBtn} onPress={testAI}>
+          <Text style={s.testBtnText}>🧪 Test AI Response</Text>
+        </TouchableOpacity>
 
         {/* Blocked apps list */}
         <View style={s.section}>
@@ -128,6 +146,8 @@ const s = StyleSheet.create({
   statCard: { flex: 1, backgroundColor: '#111', borderRadius: 12, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: '#1a1a1a' },
   statNum: { color: '#7c3aed', fontSize: 22, fontWeight: '700', fontFamily: 'monospace' },
   statLabel: { color: '#444', fontSize: 10, fontFamily: 'monospace', marginTop: 2 },
+  testBtn: { backgroundColor: '#1a1a2e', borderWidth: 1, borderColor: '#7c3aed44', borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
+  testBtnText: { color: '#7c3aed', fontSize: 13, fontFamily: 'monospace', fontWeight: '700' },
   section: { gap: 10 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   sectionTitle: { color: 'rgba(255,255,255,0.7)', fontSize: 12, fontFamily: 'monospace', letterSpacing: 2, textTransform: 'uppercase' },

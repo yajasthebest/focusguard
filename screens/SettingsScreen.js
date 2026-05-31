@@ -1,12 +1,15 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView, Alert, NativeModules } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { getBlockedApps, removeBlockedApp } from '../services/storage';
 import { useGoogleAuth, handleAuthResponse, signOut, getStoredUser } from '../services/calendar';
 
+const { AppBlocker } = NativeModules;
+
 export default function SettingsScreen({ navigation }) {
   const [blockedApps, setBlockedApps] = useState([]);
   const [user, setUser] = useState(null);
+  const [accessEnabled, setAccessEnabled] = useState(false);
 
   const { request, response, promptAsync } = useGoogleAuth();
 
@@ -24,6 +27,21 @@ export default function SettingsScreen({ navigation }) {
     const [apps, u] = await Promise.all([getBlockedApps(), getStoredUser()]);
     setBlockedApps(apps);
     setUser(u);
+    if (AppBlocker?.isAccessibilityEnabled) {
+      try { setAccessEnabled(await AppBlocker.isAccessibilityEnabled()); } catch { setAccessEnabled(false); }
+    }
+  };
+
+  const handleOpenAccessibility = () => {
+    if (AppBlocker?.openAccessibilitySettings) {
+      AppBlocker.openAccessibilitySettings();
+    } else {
+      // Native module absent (e.g. Expo Go or an older build) — guide the user manually.
+      Alert.alert(
+        'Open it manually',
+        'On your phone: Settings → Accessibility → FocusGuard → turn it on.',
+      );
+    }
   };
 
   const handleRemove = (app) => {
@@ -87,10 +105,19 @@ export default function SettingsScreen({ navigation }) {
 
         <View style={s.section}>
           <Text style={s.sectionTitle}>ANDROID SETUP</Text>
-          <View style={s.card}>
-            <Text style={s.noteText}>To actually block apps when they open, enable FocusGuard in:</Text>
-            <Text style={s.noteStep}>Settings → Accessibility → FocusGuard → Enable</Text>
-            <Text style={s.noteText}>This is how all app blockers work (Regain, Cold Turkey, etc.)</Text>
+          <View style={s.setupCard}>
+            <View style={s.row}>
+              <Text style={s.cardTitle}>Accessibility access</Text>
+              <View style={[s.statusPill, accessEnabled ? s.statusOn : s.statusOff]}>
+                <Text style={[s.statusText, accessEnabled ? s.statusTextOn : s.statusTextOff]}>
+                  {accessEnabled ? 'ENABLED' : 'DISABLED'}
+                </Text>
+              </View>
+            </View>
+            <Text style={s.noteText}>FocusGuard needs Accessibility access to detect when a blocked app opens. This is how all app blockers work (Regain, Cold Turkey, etc.).</Text>
+            <TouchableOpacity style={s.setupBtn} onPress={handleOpenAccessibility}>
+              <Text style={s.setupBtnText}>{accessEnabled ? 'Open Accessibility Settings' : 'Enable in Accessibility Settings'}</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
@@ -123,4 +150,13 @@ const s = StyleSheet.create({
   remove: { color: '#444', fontSize: 16, padding: 4 },
   noteText: { color: '#555', fontSize: 12, lineHeight: 18, marginBottom: 4 },
   noteStep: { color: '#7c3aed', fontSize: 12, marginVertical: 4 },
+  setupCard: { backgroundColor: '#111', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#1a1a1a', gap: 10 },
+  statusPill: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2, borderWidth: 1 },
+  statusOn: { backgroundColor: '#14532d', borderColor: '#22c55e44' },
+  statusOff: { backgroundColor: '#1a0808', borderColor: '#ef444444' },
+  statusText: { fontSize: 9, fontWeight: '700', letterSpacing: 1 },
+  statusTextOn: { color: '#22c55e' },
+  statusTextOff: { color: '#ef4444' },
+  setupBtn: { backgroundColor: '#7c3aed', borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
+  setupBtnText: { color: 'white', fontWeight: '700', fontSize: 13 },
 });
