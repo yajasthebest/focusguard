@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { getBlockedApps, getUsageToday } from '../services/storage';
+import { getDeviceUsageToday } from '../services/usage';
 
 export default function HomeScreen({ navigation }) {
   const [blockedApps, setBlockedApps] = useState([]);
@@ -14,9 +15,15 @@ export default function HomeScreen({ navigation }) {
   useFocusEffect(useCallback(() => { load(); }, []));
 
   const load = async () => {
-    const [apps, usage] = await Promise.all([getBlockedApps(), getUsageToday()]);
+    const [apps, localUsage, deviceUsage] = await Promise.all([
+      getBlockedApps(),
+      getUsageToday(),
+      getDeviceUsageToday(), // real per-app minutes from the OS, or null
+    ]);
     setBlockedApps(apps);
-    setUsageToday(usage);
+    // Prefer real device usage when the Usage-access permission is granted;
+    // otherwise fall back to the local counter.
+    setUsageToday(deviceUsage ?? localUsage);
   };
 
   const refresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };

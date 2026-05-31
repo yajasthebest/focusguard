@@ -1,4 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { NativeModules } from 'react-native';
+
+const { AppBlocker } = NativeModules;
 
 const KEYS = {
   BLOCKED_APPS: 'blockedApps',
@@ -13,7 +16,11 @@ export async function getBlockedApps() {
 }
 
 export async function saveBlockedApps(apps) {
-  await AsyncStorage.setItem(KEYS.BLOCKED_APPS, JSON.stringify(apps));
+  const json = JSON.stringify(apps);
+  await AsyncStorage.setItem(KEYS.BLOCKED_APPS, json);
+  // Mirror the list into native SharedPreferences so the AccessibilityService
+  // knows which packages to intercept. No-op if the native module is absent.
+  try { AppBlocker?.setBlockedApps?.(json); } catch {}
 }
 
 export async function addBlockedApp(app) {

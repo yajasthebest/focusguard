@@ -1,6 +1,7 @@
 package com.focusguard
 
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
 import com.facebook.react.bridge.*
 import com.facebook.react.module.annotations.ReactModule
@@ -36,6 +37,26 @@ class AppBlockerModule(reactContext: ReactApplicationContext) : ReactContextBase
     @ReactMethod
     fun openAccessibilitySettings() {
         val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        reactApplicationContext.startActivity(intent)
+    }
+
+    @ReactMethod
+    fun canDrawOverlays(promise: Promise) {
+        try {
+            promise.resolve(Settings.canDrawOverlays(reactApplicationContext))
+        } catch (e: Exception) {
+            promise.resolve(false)
+        }
+    }
+
+    @ReactMethod
+    fun openOverlaySettings() {
+        val intent = Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:" + reactApplicationContext.packageName)
+        ).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
         reactApplicationContext.startActivity(intent)
