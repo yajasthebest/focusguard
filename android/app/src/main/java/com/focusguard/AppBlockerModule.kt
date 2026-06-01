@@ -1,5 +1,6 @@
 package com.focusguard
 
+import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -28,7 +29,16 @@ class AppBlockerModule(reactContext: ReactApplicationContext) : ReactContextBase
                 reactApplicationContext.contentResolver,
                 Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
             ) ?: ""
-            promise.resolve(enabled.contains("com.focusguard/.AppBlockerService"))
+            // Android may store the service as either the fully-qualified name
+            // (com.focusguard/com.focusguard.AppBlockerService) or the short form
+            // (com.focusguard/.AppBlockerService). Match either, case-insensitively.
+            val cn = ComponentName(reactApplicationContext, AppBlockerService::class.java)
+            val flat = cn.flattenToString()
+            val shortFlat = cn.flattenToShortString()
+            val match = enabled.split(':').any {
+                it.equals(flat, ignoreCase = true) || it.equals(shortFlat, ignoreCase = true)
+            }
+            promise.resolve(match)
         } catch (e: Exception) {
             promise.resolve(false)
         }

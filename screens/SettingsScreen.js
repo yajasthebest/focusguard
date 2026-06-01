@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView, Alert, AppState } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { getBlockedApps, removeBlockedApp } from '../services/storage';
 import { useGoogleAuth, handleAuthResponse, signOut, getStoredUser } from '../services/calendar';
@@ -47,6 +47,15 @@ export default function SettingsScreen({ navigation }) {
   }, [response]);
 
   useFocusEffect(useCallback(() => { load(); }, []));
+
+  // Permissions are granted in the system Settings app, so navigation focus
+  // never changes — re-check whenever the app returns to the foreground.
+  React.useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') load();
+    });
+    return () => sub.remove();
+  }, []);
 
   const load = async () => {
     const [apps, u, usage, accessibility, overlay] = await Promise.all([
