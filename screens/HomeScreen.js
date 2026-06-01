@@ -1,11 +1,15 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, SafeAreaView, RefreshControl,
+  StyleSheet, SafeAreaView, RefreshControl, Alert,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { getBlockedApps, getUsageToday } from '../services/storage';
+import { getBlockedApps, getUsageToday, removeBlockedApp, updateAppLimit } from '../services/storage';
 import { getDeviceUsageToday } from '../services/usage';
+
+// Daily-limit presets shown on each app card. 1m is handy for testing the
+// block → convince → grant loop without waiting out a real limit.
+const LIMIT_PRESETS = [1, 15, 30, 60, 120];
 
 export default function HomeScreen({ navigation }) {
   const [blockedApps, setBlockedApps] = useState([]);
@@ -27,6 +31,18 @@ export default function HomeScreen({ navigation }) {
   };
 
   const refresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
+
+  const changeLimit = async (app, minutes) => {
+    await updateAppLimit(app.packageName, minutes);
+    load();
+  };
+
+  const removeApp = (app) => {
+    Alert.alert('Remove app', `Stop blocking ${app.appName}?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: async () => { await removeBlockedApp(app.packageName); load(); } },
+    ]);
+  };
 
   const totalUsed = Object.values(usageToday).reduce((a, b) => a + b, 0);
 
@@ -98,21 +114,42 @@ export default function HomeScreen({ navigation }) {
               const isOver = used >= app.dailyLimitMinutes;
               return (
                 <View key={app.packageName} style={s.appCard}>
-                  <View style={s.appIconPlaceholder}>
-                    <Text style={s.appIconText}>{app.appName[0]}</Text>
+                  <View style={s.appCardTop}>
+                    <View style={s.appIconPlaceholder}>
+                      <Text style={s.appIconText}>{app.appName[0]}</Text>
+                    </View>
+                    <View style={s.appInfo}>
+                      <View style={s.appRow}>
+                        <Text style={s.appName}>{app.appName}</Text>
+                        {isOver && <View style={s.overBadge}><Text style={s.overBadgeText}>LIMIT HIT</Text></View>}
+                      </View>
+                      <Text style={s.appUsage}>{used}m / {app.dailyLimitMinutes}m used today</Text>
+                      <View style={s.barTrack}>
+                        <View style={[s.barFill, {
+                          width: `${percent}%`,
+                          backgroundColor: isOver ? '#ef4444' : percent > 70 ? '#f0a500' : '#7c3aed',
+                        }]} />
+                      </View>
+                    </View>
+                    <TouchableOpacity onPress={() => removeApp(app)} style={s.removeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Text style={s.removeText}>✕</Text>
+                    </TouchableOpacity>
                   </View>
-                  <View style={s.appInfo}>
-                    <View style={s.appRow}>
-                      <Text style={s.appName}>{app.appName}</Text>
-                      {isOver && <View style={s.overBadge}><Text style={s.overBadgeText}>LIMIT HIT</Text></View>}
-                    </View>
-                    <Text style={s.appUsage}>{used}m / {app.dailyLimitMinutes}m used today</Text>
-                    <View style={s.barTrack}>
-                      <View style={[s.barFill, {
-                        width: `${percent}%`,
-                        backgroundColor: isOver ? '#ef4444' : percent > 70 ? '#f0a500' : '#7c3aed',
-                      }]} />
-                    </View>
+
+                  <View style={s.limitRow}>
+                    <Text style={s.limitLabel}>DAILY LIMIT</Text>
+                    {LIMIT_PRESETS.map((min) => {
+                      const active = app.dailyLimitMinutes === min;
+                      return (
+                        <TouchableOpacity
+                          key={min}
+                          onPress={() => changeLimit(app, min)}
+                          style={[s.limitChip, active && s.limitChipActive]}
+                        >
+                          <Text style={[s.limitChipText, active && s.limitChipTextActive]}>{min}m</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 </View>
               );
@@ -166,7 +203,16 @@ const s = StyleSheet.create({
   emptyText: { color: '#444', fontSize: 13, textAlign: 'center', fontFamily: 'monospace', lineHeight: 20 },
   emptyBtn: { marginTop: 8, paddingVertical: 10, paddingHorizontal: 24, backgroundColor: '#7c3aed', borderRadius: 10 },
   emptyBtnText: { color: 'white', fontWeight: '700', fontFamily: 'monospace' },
-  appCard: { backgroundColor: '#111', borderRadius: 14, padding: 14, flexDirection: 'row', gap: 12, alignItems: 'center', borderWidth: 1, borderColor: '#1a1a1a' },
+  appCard: { backgroundColor: '#111', borderRadius: 14, padding: 14, gap: 12, borderWidth: 1, borderColor: '#1a1a1a' },
+  appCardTop: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+  removeBtn: { alignSelf: 'flex-start', padding: 2 },
+  removeText: { color: '#555', fontSize: 15 },
+  limitRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+  limitLabel: { color: '#444', fontSize: 9, fontFamily: 'monospace', letterSpacing: 1, marginRight: 2 },
+  limitChip: { backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#222', borderRadius: 7, paddingHorizontal: 9, paddingVertical: 4 },
+  limitChipActive: { backgroundColor: '#7c3aed22', borderColor: '#7c3aed66' },
+  limitChipText: { color: '#666', fontSize: 11, fontFamily: 'monospace', fontWeight: '700' },
+  limitChipTextActive: { color: '#7c3aed' },
   appIconPlaceholder: { width: 42, height: 42, borderRadius: 10, backgroundColor: '#1a1a2e', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#7c3aed33' },
   appIconText: { color: '#7c3aed', fontWeight: '700', fontSize: 18 },
   appInfo: { flex: 1, gap: 4 },
