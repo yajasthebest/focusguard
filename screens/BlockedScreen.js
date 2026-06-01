@@ -2,11 +2,22 @@ import React, { useState, useEffect, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
-  SafeAreaView, Animated, StatusBar,
+  SafeAreaView, Animated, StatusBar, NativeModules,
 } from "react-native";
 import { sendMessage } from "../services/ai";
 import { getCalendarEvents, getTodos, getStoredToken } from "../services/calendar";
-import { addUsageMinutes } from "../services/storage";
+
+const { AppBlocker } = NativeModules;
+
+// Access is always handed out in fixed chunks. Whatever the AI suggests gets
+// snapped to the nearest allowed grant so the rule stays predictable.
+const GRANT_OPTIONS = [5, 15, 30];
+function normalizeGrant(mins) {
+  const n = Number(mins);
+  if (!Number.isFinite(n) || n <= 0) return GRANT_OPTIONS[0];
+  return GRANT_OPTIONS.reduce((best, opt) =>
+    Math.abs(opt - n) < Math.abs(best - n) ? opt : best, GRANT_OPTIONS[0]);
+}
 
 export default function BlockedScreen({ route, navigation }) {
   const { appName, packageName, usedMinutes, limitMinutes } = route.params;
@@ -73,8 +84,12 @@ export default function BlockedScreen({ route, navigation }) {
   };
 
   const grantAccess = (mins) => {
+    const minutes = normalizeGrant(mins);
     setDecision("granted");
-    setGrantedMinutes(mins || remaining);
+    setGrantedMinutes(minutes);
+    // Open the native allow-window so the AccessibilityService stops blocking
+    // this app until the grant expires.
+    AppBlocker?.grantAccess?.(packageName, minutes);
   };
 
   const denyAccess = () => {
@@ -182,7 +197,7 @@ export default function BlockedScreen({ route, navigation }) {
           <Text style={{ fontSize: 32 }}>✅</Text>
           <Text style={s.decisionTitle}>Access Granted</Text>
           <Text style={s.decisionSub}>You have {grantedMinutes} minutes. Make it count.</Text>
-          <TouchableOpacity style={s.openBtn} onPress={() => navigation.goBack()}>
+          <TouchableOpacity style={s.openBtn} onPress={() => { AppBlocker?.launchApp?.(packageName); navigation.goBack(); }}>
             <Text style={s.openBtnText}>Open {appName}</Text>
           </TouchableOpacity>
         </View>

@@ -1,5 +1,6 @@
 package com.focusguard
 
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 
@@ -17,6 +18,24 @@ class MainActivity : ReactActivity() {
     // This is required for expo-splash-screen.
     setTheme(R.style.AppTheme);
     super.onCreate(null)
+  }
+
+  // singleTask launchMode: when the app is already running, the blocker service's
+  // relaunch arrives here instead of onCreate. Keep the activity's intent current
+  // so getInitialBlockTarget reads fresh extras, and push the target straight to JS.
+  override fun onNewIntent(intent: Intent?) {
+    super.onNewIntent(intent)
+    if (intent != null) {
+      setIntent(intent)
+      if (intent.getBooleanExtra("fromService", false)) {
+        AppBlockerModule.emitBlockTarget(
+          intent.getStringExtra("blockedPackage"),
+          intent.getStringExtra("blockedAppName"),
+          intent.getIntExtra("limitMinutes", 30),
+          intent.getIntExtra("usedMinutes", 0)
+        )
+      }
+    }
   }
 
   /**
