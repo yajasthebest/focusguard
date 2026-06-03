@@ -9,6 +9,11 @@ import { getCalendarEvents, getTodos, getStoredToken } from "../services/calenda
 
 const { AppBlocker } = NativeModules;
 
+// How many times the user can plead before the AI's "no" becomes final and the
+// screen locks to the Go Back button. Until then a denial is "soft" — the AI
+// pushes back but the conversation stays open so they can make their case.
+const MAX_ATTEMPTS = 4;
+
 // Access is always handed out in fixed chunks. Whatever the AI suggests gets
 // snapped to the nearest allowed grant so the rule stays predictable.
 const GRANT_OPTIONS = [5, 15, 30];
@@ -33,6 +38,7 @@ export default function BlockedScreen({ route, navigation }) {
 
   const scrollRef = useRef(null);
   const shakeAnim = useRef(new Animated.Value(0)).current;
+  const attempts = useRef(0);
   const remaining = limitMinutes - usedMinutes;
   const percent = Math.round((usedMinutes / limitMinutes) * 100);
 
@@ -65,8 +71,9 @@ export default function BlockedScreen({ route, navigation }) {
         { role: "user", content: `I want to open ${appName}` },
         { role: "assistant", content: opening.message },
       ]);
+      // The opening message is auto-sent before the user has said anything, so
+      // never let it slam the door — only an outright grant short-circuits here.
       if (opening.accessGranted === true) grantAccess(opening.grantedMinutes);
-      if (opening.accessGranted === false) denyAccess();
     } catch (e) {
       setMessages([{ role: "assistant", content: `⚠️ ${e.message}` }]);
     }
@@ -102,6 +109,7 @@ export default function BlockedScreen({ route, navigation }) {
     const text = input.trim();
     setInput("");
     setLoading(true);
+    attempts.current += 1;
 
     const newMessages = [...messages, { role: "user", content: text }];
     setMessages(newMessages);
@@ -113,8 +121,14 @@ export default function BlockedScreen({ route, navigation }) {
         googleToken
       );
       setMessages(prev => [...prev, { role: "assistant", content: res.message }]);
-      if (res.accessGranted === true) grantAccess(res.grantedMinutes);
-      else if (res.accessGranted === false) denyAccess();
+      if (res.accessGranted === true) {
+        grantAccess(res.grantedMinutes);
+      } else if (res.accessGranted === false) {
+        // Hold the line only once they've had a real chance to argue; before
+        // that, keep the conversation open so they can ask for time.
+        if (attempts.current >= MAX_ATTEMPTS) denyAccess();
+        else shake();
+      }
     } catch (e) {
       setMessages(prev => [...prev, { role: "assistant", content: `⚠️ ${e.message}` }]);
     }
