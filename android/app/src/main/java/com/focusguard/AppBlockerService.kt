@@ -6,10 +6,19 @@ import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.PixelFormat
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
+import android.view.View
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-import android.widget.Toast
+import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
@@ -17,6 +26,15 @@ import java.util.Calendar
 class AppBlockerService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
+
+    private val windowManager by lazy { getSystemService(Context.WINDOW_SERVICE) as WindowManager }
+
+    // The block screen is drawn as a system overlay (SYSTEM_ALERT_WINDOW) on top
+    // of the offending app rather than by launching our Activity. Aggressive OEMs
+    // (Xiaomi/MIUI especially) silently refuse background Activity launches, but
+    // they cannot refuse an overlay the user has already granted. Null when no
+    // block is currently shown.
+    private var overlayView: View? = null
 
     // The package currently in the foreground that we're watching. While it stays
     // under its limit we re-check on a timer so crossing the limit *during* a
@@ -57,6 +75,18 @@ class AppBlockerService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val packageName = event.packageName?.toString() ?: return
+
+        // While the block overlay is up, only tear it down when the user genuinely
+        // leaves the blocked app for something else. Ignore our own overlay/app
+        // window events and re-entries into the same blocked app, otherwise the
+        // overlay would dismiss itself the instant it appears.
+        if (overlayView != null) {
+            if (packageName == "com.focusguard") return
+            if (isSystemPackage(packageName)) return
+            if (packageName == activePackage) return
+            removeOverlay()
+            // fall through to handle the app the user just switched to
+        }
 
         // Our own UI is showing — stop watching the previous app.
         if (packageName == "com.focusguard") {
@@ -125,21 +155,106 @@ class AppBlockerService : AccessibilityService() {
     private fun blockNow(packageName: String) {
         val app = blockedAppConfig(packageName) ?: return
         stopPolling()
-        // Diagnostic: if this toast shows but FocusGuard never comes to the
-        // foreground, the Activity launch is being swallowed by Android 14's
-        // background-launch limits (next step would be a full-screen-intent
-        // notification). If no toast appears, the block decision never fired.
-        Toast.makeText(this, "FocusGuard: limit reached — blocking", Toast.LENGTH_SHORT).show()
+        showBlockOverlay(
+            packageName,
+            app.getString("appName"),
+            app.optInt("dailyLimitMinutes", 30),
+            usageMinutesToday(packageName)
+        )
+    }
+
+    // Cover the offending app with a full-screen overlay. This is the actual block:
+    // it's drawn over whatever is on screen and the user can't get past it without
+    // either going home or opening the AI negotiation screen.
+    private fun showBlockOverlay(pkg: String, appName: String, limit: Int, used: Int) {
+        if (overlayView != null) return
+        try {
+            val root = FrameLayout(this).apply {
+                setBackgroundColor(0xF0080808.toInt())
+                isClickable = true // swallow touches so the app behind can't be used
+            }
+            val col = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dp(32), dp(32), dp(32), dp(32))
+            }
+            val title = TextView(this).apply {
+                text = "🛡️  Daily limit reached"
+                setTextColor(Color.WHITE)
+                textSize = 22f
+                gravity = Gravity.CENTER
+            }
+            val sub = TextView(this).apply {
+                text = "$appName · ${used}m of ${limit}m used today"
+                setTextColor(0xFF888888.toInt())
+                textSize = 14f
+                gravity = Gravity.CENTER
+                setPadding(0, dp(10), 0, dp(28))
+            }
+            val talkBtn = Button(this).apply {
+                text = "Talk to FocusGuard"
+                setOnClickListener { launchAiScreen(pkg, appName, limit, used) }
+            }
+            val homeBtn = Button(this).apply {
+                text = "Go back"
+                setOnClickListener {
+                    removeOverlay()
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                }
+            }
+            col.addView(title)
+            col.addView(sub)
+            col.addView(talkBtn)
+            col.addView(homeBtn)
+            root.addView(col, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            ))
+
+            val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else
+                @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                type,
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            )
+            windowManager.addView(root, params)
+            overlayView = root
+        } catch (e: Exception) {
+            // Overlay permission missing or a window error -> fall back to launching
+            // the Activity (works on devices that don't enforce background limits).
+            launchAiScreen(pkg, appName, limit, used)
+        }
+    }
+
+    // Open the RN negotiation screen. Triggered by a user tap on the overlay, so
+    // this Activity launch counts as user-initiated and OEM background-launch
+    // limits don't apply.
+    private fun launchAiScreen(pkg: String, appName: String, limit: Int, used: Int) {
+        removeOverlay()
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("blockedPackage", packageName)
-            putExtra("blockedAppName", app.getString("appName"))
-            putExtra("limitMinutes", app.optInt("dailyLimitMinutes", 30))
-            putExtra("usedMinutes", usageMinutesToday(packageName))
+            putExtra("blockedPackage", pkg)
+            putExtra("blockedAppName", appName)
+            putExtra("limitMinutes", limit)
+            putExtra("usedMinutes", used)
             putExtra("fromService", true)
         }
-        startActivity(intent)
+        try { startActivity(intent) } catch (e: Exception) {}
     }
+
+    private fun removeOverlay() {
+        val v = overlayView ?: return
+        overlayView = null
+        try { windowManager.removeView(v) } catch (e: Exception) {}
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun stopPolling() {
         handler.removeCallbacks(pollRunnable)
@@ -206,5 +321,6 @@ class AppBlockerService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         stopPolling()
+        removeOverlay()
     }
 }
