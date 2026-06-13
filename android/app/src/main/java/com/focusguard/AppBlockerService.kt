@@ -23,9 +23,15 @@ class AppBlockerService : AccessibilityService() {
     // session (not just on the next open) still triggers the block.
     private var activePackage: String? = null
 
+    // Whether a re-check timer is already queued. Used so a busy app's stream of
+    // window events doesn't keep restarting the timer (which would push it past
+    // its interval forever and it would never fire).
+    private var polling = false
+
     private val pollRunnable = object : Runnable {
         override fun run() {
-            val pkg = activePackage ?: return
+            val pkg = activePackage
+            if (pkg == null) { polling = false; return }
             if (shouldBlock(pkg)) {
                 blockNow(pkg)
             } else {
@@ -63,18 +69,27 @@ class AppBlockerService : AccessibilityService() {
         // don't cancel polling of the app the user is actually still inside.
         if (isSystemPackage(packageName)) return
 
-        // A real app switch: drop any poll for the previous app.
-        handler.removeCallbacks(pollRunnable)
-        activePackage = packageName
+        // A real app switch (not just another window inside the same app): drop
+        // any poll for the previous app and start fresh.
+        if (packageName != activePackage) {
+            stopPolling()
+            activePackage = packageName
+        }
 
         // Not a blocked app -> nothing to watch.
-        if (blockedAppConfig(packageName) == null) return
+        if (blockedAppConfig(packageName) == null) {
+            stopPolling()
+            return
+        }
 
+        // Re-check on every window event for this app (cheap), so we usually catch
+        // the limit crossing the instant the next screen draws. Keep ONE poll
+        // running for the idle case (e.g. a playing video that emits no events) —
+        // but never restart it here, or a busy app would reset it forever.
         if (shouldBlock(packageName)) {
             blockNow(packageName)
-        } else {
-            // Under the limit / within a grant: let them in, but keep checking so
-            // we catch the moment they go over while still in the app.
+        } else if (!polling) {
+            polling = true
             handler.postDelayed(pollRunnable, POLL_INTERVAL_MS)
         }
     }
@@ -128,6 +143,7 @@ class AppBlockerService : AccessibilityService() {
 
     private fun stopPolling() {
         handler.removeCallbacks(pollRunnable)
+        polling = false
     }
 
     private fun isSystemPackage(pkg: String): Boolean {
