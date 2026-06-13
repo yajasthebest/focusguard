@@ -1,5 +1,6 @@
 package com.focusguard
 
+import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
@@ -49,15 +50,35 @@ class UsageStatsModule(reactContext: ReactApplicationContext) : ReactContextBase
                 set(Calendar.SECOND, 0)
                 set(Calendar.MILLISECOND, 0)
             }
-            val stats = usm.queryUsageStats(
-                UsageStatsManager.INTERVAL_DAILY,
-                cal.timeInMillis,
-                System.currentTimeMillis()
-            )
+            val now = System.currentTimeMillis()
+            // Walk raw events and sum foreground spans per package, closing any
+            // still-open session at "now". Matches AppBlockerService exactly, so the
+            // dashboard's "LIMIT HIT" agrees with what actually triggers a block —
+            // unlike queryUsageStats(INTERVAL_DAILY), which over-counts by summing
+            // overlapping daily buckets and omits the in-progress session.
+            val events = usm.queryEvents(cal.timeInMillis, now)
+            val event = UsageEvents.Event()
+            val totals = HashMap<String, Long>()
+            val foregroundSince = HashMap<String, Long>()
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                val pkg = event.packageName ?: continue
+                when (event.eventType) {
+                    UsageEvents.Event.MOVE_TO_FOREGROUND ->
+                        if (!foregroundSince.containsKey(pkg)) foregroundSince[pkg] = event.timeStamp
+                    UsageEvents.Event.MOVE_TO_BACKGROUND -> {
+                        val since = foregroundSince.remove(pkg)
+                        if (since != null) totals[pkg] = (totals[pkg] ?: 0L) + (event.timeStamp - since)
+                    }
+                }
+            }
+            for ((pkg, since) in foregroundSince) {
+                totals[pkg] = (totals[pkg] ?: 0L) + (now - since)
+            }
             val result = WritableNativeMap()
-            for (stat in stats) {
-                val minutes = (stat.totalTimeInForeground / 1000 / 60).toInt()
-                if (minutes > 0) result.putInt(stat.packageName, minutes)
+            for ((pkg, ms) in totals) {
+                val minutes = (ms / 1000 / 60).toInt()
+                if (minutes > 0) result.putInt(pkg, minutes)
             }
             promise.resolve(result)
         } catch (e: Exception) {

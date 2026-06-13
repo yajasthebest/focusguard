@@ -2,12 +2,14 @@ package com.focusguard
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
+import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
@@ -108,6 +110,11 @@ class AppBlockerService : AccessibilityService() {
     private fun blockNow(packageName: String) {
         val app = blockedAppConfig(packageName) ?: return
         stopPolling()
+        // Diagnostic: if this toast shows but FocusGuard never comes to the
+        // foreground, the Activity launch is being swallowed by Android 14's
+        // background-launch limits (next step would be a full-screen-intent
+        // notification). If no toast appears, the block decision never fired.
+        Toast.makeText(this, "FocusGuard: limit reached — blocking", Toast.LENGTH_SHORT).show()
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("blockedPackage", packageName)
@@ -129,25 +136,53 @@ class AppBlockerService : AccessibilityService() {
             pkg.contains("inputmethod")
     }
 
-    // Minutes the package has spent in the foreground since midnight, read straight
-    // from Android's UsageStatsManager (requires the Usage Access permission).
+    // Minutes the package has spent in the foreground since midnight. Computed
+    // from raw usage *events* rather than queryAndAggregateUsageStats because the
+    // aggregate API does NOT include the session that is currently in progress —
+    // the minutes you're racking up *right now* sitting inside the app aren't
+    // flushed yet. By walking foreground/background events and closing any still-
+    // open session at "now", a limit trips mid-session instead of only after you
+    // leave the app. Requires the Usage Access permission.
     private fun usageMinutesToday(packageName: String): Int {
         return try {
             val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-            val cal = Calendar.getInstance().apply {
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
+            val start = startOfTodayMillis()
+            val now = System.currentTimeMillis()
+            val events = usm.queryEvents(start, now)
+            val event = UsageEvents.Event()
+            var totalMs = 0L
+            var foregroundSince = 0L
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                if (event.packageName != packageName) continue
+                when (event.eventType) {
+                    // MOVE_TO_FOREGROUND == ACTIVITY_RESUMED (same value); guard so a
+                    // second resume without an intervening pause doesn't reset the clock.
+                    UsageEvents.Event.MOVE_TO_FOREGROUND ->
+                        if (foregroundSince == 0L) foregroundSince = event.timeStamp
+                    // MOVE_TO_BACKGROUND == ACTIVITY_PAUSED.
+                    UsageEvents.Event.MOVE_TO_BACKGROUND ->
+                        if (foregroundSince != 0L) {
+                            totalMs += event.timeStamp - foregroundSince
+                            foregroundSince = 0L
+                        }
+                }
             }
-            // queryAndAggregateUsageStats merges per-package buckets so we don't
-            // double-count like a raw queryUsageStats list would.
-            val stats = usm.queryAndAggregateUsageStats(cal.timeInMillis, System.currentTimeMillis())
-            val ms = stats[packageName]?.totalTimeInForeground ?: 0L
-            (ms / 1000 / 60).toInt()
+            // Session still open => the app is in the foreground now. Count up to now.
+            if (foregroundSince != 0L) totalMs += now - foregroundSince
+            (totalMs / 1000 / 60).toInt()
         } catch (e: Exception) {
             0
         }
+    }
+
+    private fun startOfTodayMillis(): Long {
+        return Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
     }
 
     override fun onInterrupt() {}
