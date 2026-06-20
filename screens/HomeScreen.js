@@ -22,8 +22,14 @@ function formatMins(m) {
 // button is a temporary fast path for testing the block/convince loop — remove
 // it once limit-anti-cheat testing is done.
 function LimitControl({ app, onCommit }) {
-  const [live, setLive] = useState(app.dailyLimitMinutes);
-  useEffect(() => { setLive(app.dailyLimitMinutes); }, [app.dailyLimitMinutes]);
+  const active = app.dailyLimitMinutes;
+  // `live` is just the slider's working value — nothing is saved until Apply, so
+  // an accidental drag is fully reversible (drag back, or hit reset).
+  const [live, setLive] = useState(active);
+  useEffect(() => { setLive(active); }, [active]);
+
+  const dirty = live !== active;
+  const raising = live > active;
 
   return (
     <View style={s.limitBox}>
@@ -31,13 +37,26 @@ function LimitControl({ app, onCommit }) {
         <Text style={s.limitLabel}>DAILY LIMIT</Text>
         <Text style={s.limitReadout}>{formatMins(live)}</Text>
       </View>
-      <LimitSlider value={live} min={15} max={480} step={15} onChange={setLive} onComplete={onCommit} />
+      <LimitSlider value={live} min={15} max={480} step={15} onChange={setLive} />
+
+      {dirty && (
+        <View style={s.applyRow}>
+          <TouchableOpacity style={s.applyBtn} onPress={() => onCommit(live)}>
+            <Text style={s.applyText}>{raising ? 'Apply (at midnight)' : 'Apply'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.resetBtn} onPress={() => setLive(active)}>
+            <Text style={s.resetText}>reset</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {app.pendingRemove ? (
         <Text style={s.pendingNote}>⏳ removal takes effect at midnight</Text>
       ) : app.pendingLimit ? (
         <Text style={s.pendingNote}>⏳ increase to {formatMins(app.pendingLimit)} takes effect at midnight</Text>
       ) : null}
-      <TouchableOpacity onPress={() => { setLive(1); onCommit(1); }} style={s.testLimitBtn}>
+
+      <TouchableOpacity onPress={() => onCommit(1)} style={s.testLimitBtn}>
         <Text style={s.testLimitText}>set 1m (test)</Text>
       </TouchableOpacity>
     </View>
@@ -244,6 +263,11 @@ const s = StyleSheet.create({
   testLimitBtn: { alignSelf: 'flex-start', paddingVertical: 2 },
   testLimitText: { color: '#333', fontSize: 10, fontFamily: 'monospace' },
   pendingNote: { color: '#f0a500', fontSize: 10, fontFamily: 'monospace' },
+  applyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 2 },
+  applyBtn: { backgroundColor: '#7c3aed', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 6 },
+  applyText: { color: 'white', fontSize: 12, fontFamily: 'monospace', fontWeight: '700' },
+  resetBtn: { paddingVertical: 6, paddingHorizontal: 4 },
+  resetText: { color: '#666', fontSize: 11, fontFamily: 'monospace' },
   appIconPlaceholder: { width: 42, height: 42, borderRadius: 10, backgroundColor: '#1a1a2e', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#7c3aed33' },
   appIconText: { color: '#7c3aed', fontWeight: '700', fontSize: 18 },
   appInfo: { flex: 1, gap: 4 },
