@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, SafeAreaView, RefreshControl, Alert,
@@ -6,10 +6,38 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { getBlockedApps, getUsageToday, removeBlockedApp, updateAppLimit } from '../services/storage';
 import { getDeviceUsageToday } from '../services/usage';
+import LimitSlider from '../components/LimitSlider';
 
-// Daily-limit presets shown on each app card. 1m is handy for testing the
-// block → convince → grant loop without waiting out a real limit.
-const LIMIT_PRESETS = [1, 15, 30, 60, 120];
+// "4h 0m" style formatting for a minute count.
+function formatMins(m) {
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  if (h && mm) return `${h}h ${mm}m`;
+  if (h) return `${h}h`;
+  return `${mm}m`;
+}
+
+// Per-app limit control: a live readout + slider (15m–8h, 15m steps). Keeps the
+// dragged value locally and only commits to storage on release. The "1m (test)"
+// button is a temporary fast path for testing the block/convince loop — remove
+// it once limit-anti-cheat testing is done.
+function LimitControl({ app, onCommit }) {
+  const [live, setLive] = useState(app.dailyLimitMinutes);
+  useEffect(() => { setLive(app.dailyLimitMinutes); }, [app.dailyLimitMinutes]);
+
+  return (
+    <View style={s.limitBox}>
+      <View style={s.limitHead}>
+        <Text style={s.limitLabel}>DAILY LIMIT</Text>
+        <Text style={s.limitReadout}>{formatMins(live)}</Text>
+      </View>
+      <LimitSlider value={live} min={15} max={480} step={15} onChange={setLive} onComplete={onCommit} />
+      <TouchableOpacity onPress={() => { setLive(1); onCommit(1); }} style={s.testLimitBtn}>
+        <Text style={s.testLimitText}>set 1m (test)</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
 
 export default function HomeScreen({ navigation }) {
   const [blockedApps, setBlockedApps] = useState([]);
@@ -136,21 +164,7 @@ export default function HomeScreen({ navigation }) {
                     </TouchableOpacity>
                   </View>
 
-                  <View style={s.limitRow}>
-                    <Text style={s.limitLabel}>DAILY LIMIT</Text>
-                    {LIMIT_PRESETS.map((min) => {
-                      const active = app.dailyLimitMinutes === min;
-                      return (
-                        <TouchableOpacity
-                          key={min}
-                          onPress={() => changeLimit(app, min)}
-                          style={[s.limitChip, active && s.limitChipActive]}
-                        >
-                          <Text style={[s.limitChipText, active && s.limitChipTextActive]}>{min}m</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
+                  <LimitControl app={app} onCommit={(v) => changeLimit(app, v)} />
                 </View>
               );
             })
@@ -207,12 +221,12 @@ const s = StyleSheet.create({
   appCardTop: { flexDirection: 'row', gap: 12, alignItems: 'center' },
   removeBtn: { alignSelf: 'flex-start', padding: 2 },
   removeText: { color: '#555', fontSize: 15 },
-  limitRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
-  limitLabel: { color: '#444', fontSize: 9, fontFamily: 'monospace', letterSpacing: 1, marginRight: 2 },
-  limitChip: { backgroundColor: '#1a1a1a', borderWidth: 1, borderColor: '#222', borderRadius: 7, paddingHorizontal: 9, paddingVertical: 4 },
-  limitChipActive: { backgroundColor: '#7c3aed22', borderColor: '#7c3aed66' },
-  limitChipText: { color: '#666', fontSize: 11, fontFamily: 'monospace', fontWeight: '700' },
-  limitChipTextActive: { color: '#7c3aed' },
+  limitBox: { gap: 2 },
+  limitHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  limitLabel: { color: '#444', fontSize: 9, fontFamily: 'monospace', letterSpacing: 1 },
+  limitReadout: { color: '#7c3aed', fontSize: 14, fontFamily: 'monospace', fontWeight: '700' },
+  testLimitBtn: { alignSelf: 'flex-start', paddingVertical: 2 },
+  testLimitText: { color: '#333', fontSize: 10, fontFamily: 'monospace' },
   appIconPlaceholder: { width: 42, height: 42, borderRadius: 10, backgroundColor: '#1a1a2e', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#7c3aed33' },
   appIconText: { color: '#7c3aed', fontWeight: '700', fontSize: 18 },
   appInfo: { flex: 1, gap: 4 },

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, SafeAreaView, TextInput, ActivityIndicator, NativeModules, Alert } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, SafeAreaView, TextInput, ActivityIndicator, NativeModules } from 'react-native';
 import { addBlockedApp } from '../services/storage';
 
 const { UsageStats } = NativeModules;
@@ -23,7 +23,6 @@ export default function AppPickerScreen({ navigation }) {
   const [filtered, setFiltered] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const [limit, setLimit] = useState('30');
 
   useEffect(() => {
     loadApps();
@@ -53,12 +52,8 @@ export default function AppPickerScreen({ navigation }) {
   };
 
   const handleAdd = async (app) => {
-    const mins = parseInt(limit);
-    if (!mins || mins < 1) {
-      Alert.alert('Invalid limit', 'Please enter a valid number of minutes.');
-      return;
-    }
-    await addBlockedApp({ ...app, dailyLimitMinutes: mins });
+    // Adds with the default limit; the exact daily limit is set on the dashboard.
+    await addBlockedApp(app);
     navigation.goBack();
   };
 
@@ -67,17 +62,6 @@ export default function AppPickerScreen({ navigation }) {
       <View style={s.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}><Text style={s.back}>← Back</Text></TouchableOpacity>
         <Text style={s.title}>Add App</Text>
-      </View>
-
-      <View style={s.limitRow}>
-        <Text style={s.limitLabel}>Daily limit (minutes):</Text>
-        <TextInput
-          style={s.limitInput}
-          value={limit}
-          onChangeText={setLimit}
-          keyboardType="numeric"
-          placeholderTextColor="#444"
-        />
       </View>
 
       <TextInput
@@ -116,9 +100,6 @@ const s = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#111', gap: 12 },
   back: { color: '#7c3aed', fontSize: 14, fontWeight: '600' },
   title: { color: 'white', fontSize: 18, fontWeight: '700' },
-  limitRow: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 10, borderBottomWidth: 1, borderBottomColor: '#111' },
-  limitLabel: { color: '#555', fontSize: 13, flex: 1 },
-  limitInput: { backgroundColor: '#111', color: 'white', borderWidth: 1, borderColor: '#7c3aed33', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, width: 70, textAlign: 'center' },
   search: { margin: 12, backgroundColor: '#111', borderWidth: 1, borderColor: '#1a1a1a', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, color: 'white', fontSize: 14 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: '#111', gap: 12 },

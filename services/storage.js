@@ -23,11 +23,15 @@ export async function saveBlockedApps(apps) {
   try { AppBlocker?.setBlockedApps?.(json); } catch {}
 }
 
+// Default daily limit for a newly blocked app. Deliberately generous (4h) so the
+// first experience isn't punishing — tightening from here is one drag away.
+const DEFAULT_LIMIT_MINUTES = 240;
+
 export async function addBlockedApp(app) {
   const apps = await getBlockedApps();
   const exists = apps.find(a => a.packageName === app.packageName);
   if (!exists) {
-    apps.push({ ...app, dailyLimitMinutes: 30 });
+    apps.push({ ...app, dailyLimitMinutes: app.dailyLimitMinutes ?? DEFAULT_LIMIT_MINUTES });
     await saveBlockedApps(apps);
   }
 }
