@@ -4,7 +4,7 @@ import {
   StyleSheet, SafeAreaView, RefreshControl, Alert,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { getBlockedApps, getUsageToday, removeBlockedApp, updateAppLimit } from '../services/storage';
+import { getBlockedApps, getUsageToday, removeBlockedApp, updateAppLimit, flushPendingChanges } from '../services/storage';
 import { getDeviceUsageToday } from '../services/usage';
 import LimitSlider from '../components/LimitSlider';
 
@@ -32,6 +32,11 @@ function LimitControl({ app, onCommit }) {
         <Text style={s.limitReadout}>{formatMins(live)}</Text>
       </View>
       <LimitSlider value={live} min={15} max={480} step={15} onChange={setLive} onComplete={onCommit} />
+      {app.pendingRemove ? (
+        <Text style={s.pendingNote}>⏳ removal takes effect at midnight</Text>
+      ) : app.pendingLimit ? (
+        <Text style={s.pendingNote}>⏳ increase to {formatMins(app.pendingLimit)} takes effect at midnight</Text>
+      ) : null}
       <TouchableOpacity onPress={() => { setLive(1); onCommit(1); }} style={s.testLimitBtn}>
         <Text style={s.testLimitText}>set 1m (test)</Text>
       </TouchableOpacity>
@@ -66,13 +71,17 @@ export default function HomeScreen({ navigation }) {
   };
 
   const removeApp = (app) => {
-    Alert.alert('Remove app', `Stop blocking ${app.appName}?`, [
+    Alert.alert('Remove app', `Stop blocking ${app.appName}? To stop impulse unblocking, this only takes effect at midnight.`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: async () => { await removeBlockedApp(app.packageName); load(); } },
     ]);
   };
 
+  // Test-only: skip the midnight wait on any parked change.
+  const applyPendingNow = async () => { await flushPendingChanges(); load(); };
+
   const totalUsed = Object.values(usageToday).reduce((a, b) => a + b, 0);
+  const hasPending = blockedApps.some(a => a.pendingEffective);
 
   // Dev/test: open the AI gate without waiting to hit a real limit.
   // Uses the first blocked app if there is one, otherwise a sensible default.
@@ -116,6 +125,13 @@ export default function HomeScreen({ navigation }) {
         <TouchableOpacity style={s.testBtn} onPress={testAI}>
           <Text style={s.testBtnText}>🧪 Test AI Response</Text>
         </TouchableOpacity>
+
+        {/* Test-only: force parked midnight changes to apply immediately */}
+        {hasPending && (
+          <TouchableOpacity style={s.testBtn} onPress={applyPendingNow}>
+            <Text style={s.testBtnText}>⏩ apply pending changes now (test)</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Blocked apps list */}
         <View style={s.section}>
@@ -227,6 +243,7 @@ const s = StyleSheet.create({
   limitReadout: { color: '#7c3aed', fontSize: 14, fontFamily: 'monospace', fontWeight: '700' },
   testLimitBtn: { alignSelf: 'flex-start', paddingVertical: 2 },
   testLimitText: { color: '#333', fontSize: 10, fontFamily: 'monospace' },
+  pendingNote: { color: '#f0a500', fontSize: 10, fontFamily: 'monospace' },
   appIconPlaceholder: { width: 42, height: 42, borderRadius: 10, backgroundColor: '#1a1a2e', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#7c3aed33' },
   appIconText: { color: '#7c3aed', fontWeight: '700', fontSize: 18 },
   appInfo: { flex: 1, gap: 4 },
